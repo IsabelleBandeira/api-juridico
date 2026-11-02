@@ -1,0 +1,29 @@
+
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: juridico-sqlserver
+    environment:
+      ACCEPT_EULA: ${ACCEPT_EULA}
+      MSSQL_PID: ${MSSQL_PID}
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD}
+    ports:
+      - "${SQLSERVER_PORT}:1433"
+    volumes:
+      - sqlserver_data:/var/opt/mssql
+
+  localstack:
+    image: localstack/localstack:latest
+    container_name: juridico-localstack
+    ports:
+      - "${LOCALSTACK_PORT}:4566"
+    environment:
+      SERVICES: sqs
+      AWS_DEFAULT_REGION: ${AWS_REGION}
+    volumes:
+      - "./scripts:/etc/localstack/init/ready.d"
+      - "localstack_data:/var/lib/localstack"
+
+volumes:
+  sqlserver_data:
+  localstack_data:
