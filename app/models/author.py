@@ -35,7 +35,7 @@ class Author(Base):
     )
 
     logradouro: Mapped[str] = mapped_column(Unicode(200), nullable=False)
-    numero: Mapped[str] = mapped_column(Unicode(200), nullable=False)
+    complemento: Mapped[str] = mapped_column(Unicode(200), nullable=False)
     cidade: Mapped[str] = mapped_column(Unicode(200), nullable=False)
     cep: Mapped[str] = mapped_column(Unicode(20), nullable=False)
 
