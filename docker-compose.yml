@@ -19,6 +19,7 @@ services:
     environment:
       SERVICES: sqs
       AWS_DEFAULT_REGION: ${AWS_REGION}
+      LOCALSTACK_AUTH_TOKEN: ${LOCALSTACK_AUTH_TOKEN}
     volumes:
       - "./scripts:/etc/localstack/init/ready.d"
       - "localstack_data:/var/lib/localstack"
@@ -34,6 +35,7 @@ services:
       - sqlserver
     volumes:
       - ./app:/app/app
+      - ./services:/app/services
       - ./tests:/app/tests
 
 volumes:

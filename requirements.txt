@@ -7,3 +7,4 @@ alembic
 httpx
 boto3
 pytest
+requests

@@ -50,5 +50,5 @@ class Author(Base):
     )
 
     acordos: Mapped[list["Agreement"]] = relationship(
-        back_populates="Autor"
+        back_populates="autor"
     )

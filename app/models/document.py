@@ -41,5 +41,5 @@ class Document(Base):
     )
 
     acordo: Mapped["Agreement"] = relationship(
-        back_populates="Documento"
+        back_populates="documentos"
     )
