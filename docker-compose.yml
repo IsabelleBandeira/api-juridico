@@ -1,4 +1,3 @@
-
 services:
   sqlserver:
     image: mcr.microsoft.com/mssql/server:2022-latest
@@ -23,6 +22,19 @@ services:
     volumes:
       - "./scripts:/etc/localstack/init/ready.d"
       - "localstack_data:/var/lib/localstack"
+
+  app:
+    build: .
+    container_name: juridico-app
+    env_file:
+      - .env
+    environment:
+      DATABASE_HOST: sqlserver
+    depends_on:
+      - sqlserver
+    volumes:
+      - ./app:/app/app
+      - ./tests:/app/tests
 
 volumes:
   sqlserver_data:

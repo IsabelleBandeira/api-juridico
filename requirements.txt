@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+pydantic-settings
+sqlalchemy>=2.0,<3.0
+pyodbc
+alembic
+httpx
+boto3
+pytest
