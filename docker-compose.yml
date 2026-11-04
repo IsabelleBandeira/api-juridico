@@ -35,8 +35,11 @@ services:
       - sqlserver
     volumes:
       - ./app:/app/app
+      - ./api:/app/api
       - ./services:/app/services
       - ./tests:/app/tests
+    ports:
+      - "8000:8000"
 
 volumes:
   sqlserver_data:

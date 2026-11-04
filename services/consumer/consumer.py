@@ -11,13 +11,9 @@ from app.models.author import Author
 from app.models.agreement import Agreement
 from app.models.document import Document
 from app.schemas.mensagem import MensagemIngestao
+from app.logging_config import configurar_logs
 
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-)
-
+configurar_logs()
 logger = logging.getLogger(__name__)
 
 
@@ -152,26 +148,34 @@ def processar_mensagem(mensagem_sqs: dict):
     salvar_mensagem(dados)
 
     logger.info(
-        "Mensagem processada com sucesso. message_id=%s correlation_id=%s",
+        "Mensagem Processada com Sucesso | "
+        "app_message_id=%s sqs_message_id=%s correlation_id=%s",
         dados.message_id,
+        mensagem_sqs.get("MessageId"),
         dados.correlation_id,
     )
 
 
 def processar_lote(mensagens: list[dict]):
-    """
-    Processa todas as mensagens do lote.
-    Uma falha não interrompe o processamento das demais.
-    """
-
     processadas = 0
     falhas = 0
 
     for mensagem in mensagens:
+        sqs_message_id = mensagem.get("MessageId")
+
         try:
             processar_mensagem(mensagem)
 
-            # Só exclui a mensagem depois do commit no banco
+        except Exception:
+            falhas += 1
+
+            logger.exception(
+                "Falha no Processamento da Mensagem | sqs_message_id=%s",
+                sqs_message_id,
+            )
+            continue
+
+        try:
             sqs.delete_message(
                 QueueUrl=queue_url,
                 ReceiptHandle=mensagem["ReceiptHandle"],
@@ -179,16 +183,21 @@ def processar_lote(mensagens: list[dict]):
 
             processadas += 1
 
+            logger.info(
+                "Mensagem Deletada | sqs_message_id=%s",
+                sqs_message_id,
+            )
+
         except Exception:
             falhas += 1
 
             logger.exception(
-                "Falha ao processar mensagem SQS. sqs_message_id=%s",
-                mensagem.get("MessageId"),
+                "Falha ao Excluir a Mensagem | sqs_message_id=%s",
+                sqs_message_id,
             )
 
     logger.info(
-        "Lote finalizado. processadas=%s falhas=%s",
+        "Lote Finalizado | processadas=%d falhas=%d",
         processadas,
         falhas,
     )

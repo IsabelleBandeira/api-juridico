@@ -15,17 +15,13 @@ from app.schemas.mensagem import (
     AcordoMensagem,
     DocumentoMensagem,
 )
+from app.logging_config import configurar_logs
 
+configurar_logs()
+logger = logging.getLogger(__name__)
 
 API_BASE_URL = "https://jsonplaceholder.typicode.com"
 HTTP_TIMEOUT = 10
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-)
-
-logger = logging.getLogger(__name__)
 
 
 def criar_sessao_http() -> requests.Session:
@@ -222,16 +218,23 @@ def executar_producer():
                     total_publicadas += 1
 
                     logger.info(
-                        "Mensagem publicada: %s",
+                        "Mensagem Publicada | "
+                        "app_message_id=%s sqs_message_id=%s "
+                        "author_id=%s correlation_id=%s",
+                        mensagem.message_id,
                         message_id,
+                        mensagem.autor.id_externo,
+                        mensagem.correlation_id,
                     )
 
                 except Exception:
                     total_falhas += 1
 
                     logger.exception(
-                        "Falha ao publicar mensagem %s",
+                        "Falha na Publicação da Mensagem | "
+                        "app_message_id=%s correlation_id=%s",
                         mensagem.message_id,
+                        mensagem.correlation_id,
                     )
 
     except Exception:
