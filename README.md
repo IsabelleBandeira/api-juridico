@@ -67,9 +67,25 @@ Configure os valores necessários no arquivo `.env`, especialmente:
 
 **Importante:** não compartilhe o arquivo `.env` nem envie credenciais reais ao repositório.
 
-## 4. Executando o projeto
+## 4. Criação do schema do banco
 
-### 4.1. Iniciar os serviços
+O SQL Server é executado pelo Docker Compose. As tabelas são criadas pela aplicação por meio dos modelos SQLAlchemy, usando `app/create_tables.py`.
+
+Depois que o SQL Server estiver disponível e o banco configurado em `DATABASE_NAME` existir, execute:
+
+```powershell
+docker compose exec app python -m app.create_tables
+```
+
+Esse comando cria as tabelas `Autor`, `Acordo` e `Documento`, incluindo chaves primárias, restrições de unicidade, chaves estrangeiras e índices definidos nos modelos. A operação é segura para execução repetida: `create_all` cria objetos ausentes e não recria tabelas existentes.
+
+Como alternativa/documentação do mesmo schema, o repositório disponibiliza `database/criacao_tabelas.sql`. Esse script SQL representa manualmente a estrutura declarada nos modelos ORM, incluindo os índices dos campos de relacionamento. Para utilizá-lo, conecte-se ao banco configurado em `DATABASE_NAME` e execute o arquivo. Use **uma** das alternativas para criar as tabelas; não é necessário executar ambas.
+
+> A criação do schema não é executada automaticamente pelo `docker compose up`. Execute o comando acima antes de iniciar a ingestão ou utilizar os endpoints que consultam o banco.
+
+## 5. Executando o projeto
+
+### 5.1. Iniciar os serviços
 
 Com o Docker em execução, suba os serviços:
 
@@ -85,7 +101,7 @@ Verifique se os containers estão em execução:
 docker compose ps
 ```
 
-### 4.2. Executar o Producer
+### 5.2. Executar o Producer
 
 O Producer é executado sob demanda. Para iniciar a ingestão:
 
@@ -95,7 +111,7 @@ docker compose run --rm producer
 
 O Producer consulta a API externa, transforma os dados e publica as mensagens na fila SQS.
 
-### 4.3. Executar o Consumer
+### 5.3. Executar o Consumer
 
 O Consumer permanece em execução contínua, aguardando mensagens na fila.
 
@@ -113,7 +129,20 @@ docker compose logs -f consumer
 
 Após a publicação das mensagens pelo Producer, o Consumer deverá recebê-las, processá-las e persistir os dados no SQL Server.
 
-### 4.4. Consultar a API
+### 5.4. Dead-letter queue (DLQ)
+
+O script em `scripts/` inicializa a fila principal `juridico-queue` e a fila de mensagens não processadas `juridico-dlq`. A política de redrive configura `maxReceiveCount=3`: mensagens que continuam falhando após as tentativas de entrega são encaminhadas à DLQ.
+
+Para inspecionar as filas no ambiente local, utilize o AWS CLI dentro do container LocalStack, por exemplo:
+
+```bash
+docker compose exec localstack awslocal sqs list-queues
+docker compose exec localstack awslocal sqs get-queue-attributes \
+  --queue-url http://localhost:4566/000000000000/juridico-dlq \
+  --attribute-names ApproximateNumberOfMessages
+```
+
+### 5.5. Consultar a API
 
 Com a API em execução, acesse a documentação interativa:
 
@@ -139,7 +168,7 @@ Substitua `SUA_API_KEY` pelo valor configurado no `.env`.
 
 A resposta contém os dados do autor, seus acordos e os documentos associados.
 
-## 5. Executando os testes
+## 6. Executando os testes
 
 Para executar toda a suíte de testes:
 
@@ -159,7 +188,9 @@ Os testes cobrem:
 
 > Os testes que dependem de serviços externos ou do banco precisam do ambiente correspondente em execução.
 
-## 6. Comandos úteis
+A criação do schema pode ser validada consultando as tabelas e índices no SQL Server. O arquivo `database/criacao_tabelas.sql` também serve como referência do DDL correspondente aos modelos.
+
+## 7. Comandos úteis
 
 ### Docker Compose
 
@@ -215,7 +246,7 @@ docker compose down -v
 > Atenção: `docker compose down -v` remove os volumes associados ao ambiente e pode apagar os dados persistidos no banco.
 
 
-## 7. Encerrando o ambiente
+## 8. Encerrando o ambiente
 
 Ao terminar a execução:
 

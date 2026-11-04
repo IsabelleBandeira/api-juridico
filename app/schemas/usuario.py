@@ -11,7 +11,7 @@ class SchemaResposta(BaseModel):
 
 class EnderecoResposta(SchemaResposta):
     logradouro: str
-    complemento: str
+    complemento: str | None
     cidade: str
     cep: str
 

@@ -11,7 +11,7 @@ class AutorMensagem(SchemaBase):
     email: str
     telefone: str
     rua: str
-    complemento: str
+    complemento: str | None = None
     cidade: str
     cep: str
     nome_empresa: str | None = None

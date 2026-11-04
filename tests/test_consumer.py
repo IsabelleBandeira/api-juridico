@@ -14,6 +14,7 @@ from app.schemas.mensagem import (
 )
 from services.consumer import consumer
 from services.consumer.consumer import salvar_mensagem
+from sqlalchemy import func
 
 
 def test_salvar_mensagem_e_idempotente():
@@ -102,10 +103,22 @@ def test_salvar_mensagem_e_idempotente():
             assert documento.id_acordo == acordo.id
 
             assert session.scalar(
-                select(Author).where(
+                select(func.count()).select_from(Author).where(
                     Author.codigo_externo == id_autor
-                ).count()
-            ) if False else True
+                )
+            ) == 1
+
+            assert session.scalar(
+                select(func.count()).select_from(Agreement).where(
+                    Agreement.codigo_externo == id_acordo
+                )
+            ) == 1
+
+            assert session.scalar(
+                select(func.count()).select_from(Document).where(
+                    Document.codigo_externo == id_documento
+                )
+            ) == 1
 
     finally:
         # Remove somente os registros criados por este teste.
@@ -312,3 +325,28 @@ def test_salvar_mensagem_faz_rollback_em_falha(monkeypatch):
             "SessionLocal",
             session_factory_original,
         )
+
+def test_salvar_acordo_sem_documentos():
+    mensagem = MensagemIngestao.model_validate({
+        "message_id": "teste-sem-documentos",
+        "correlation_id": "teste-sem-documentos",
+        "autor": {
+            "id_externo": 1,
+            "nome": "Leanne Graham",
+            "email": "Sincere@april.biz",
+            "rua": "Kulas Light",
+            "complemento": "Apt. 556",
+            "cidade": "Gwenborough",
+            "cep": "92998-3874",
+            "telefone": "(11) 99999-9999",
+            "nome_empresa": "Romaguera-Crona",
+            "segmento_empresa": "harness real-time e-markets"
+        },
+        "acordo":  {
+            "id_externo": 1,
+            "titulo": "quidem molestiae enim"
+        },
+        "documentos": []
+    })
+
+    salvar_mensagem(mensagem)
