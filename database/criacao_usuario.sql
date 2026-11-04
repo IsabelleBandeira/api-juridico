@@ -2,7 +2,7 @@ CREATE DATABASE juridico_db;
 GO
 
 CREATE LOGIN juridico_app
-WITH PASSWORD = 'SENHA_FORTE';
+WITH PASSWORD = 'PLACEHOLDER_PSWD';
 GO
 
 USE juridico_db;

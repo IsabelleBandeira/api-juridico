@@ -41,6 +41,38 @@ services:
     ports:
       - "8000:8000"
 
+  producer:
+    build: .
+    container_name: lambda_producer
+    env_file:
+      - .env
+    environment:
+      DATABASE_HOST: sqlserver
+    depends_on:
+      - localstack
+    volumes:
+      - ./app:/app/app
+      - ./services:/app/services
+    command: ["python", "-m", "services.producer.producer"]
+    profiles:
+      - ingestion
+
+  consumer:
+    build: .
+    container_name: lambda_consumer
+    env_file:
+      - .env
+    environment:
+      DATABASE_HOST: sqlserver
+    depends_on:
+      - sqlserver
+      - localstack
+    volumes:
+      - ./app:/app/app
+      - ./services:/app/services
+    command: ["python", "-m", "services.consumer.consumer"]
+    restart: unless-stopped
+
 volumes:
   sqlserver_data:
   localstack_data:
