@@ -67,25 +67,157 @@ Configure os valores necessários no arquivo `.env`, especialmente:
 
 **Importante:** não compartilhe o arquivo `.env` nem envie credenciais reais ao repositório.
 
-## 4. Criação do schema do banco
+## 4. Preparação inicial do SQL Server
 
-O SQL Server é executado pelo Docker Compose. As tabelas são criadas pela aplicação por meio dos modelos SQLAlchemy, usando `app/create_tables.py`.
+> **Esta etapa é necessária somente na primeira configuração do banco.** O container do SQL Server inicializa o serviço, mas não executa automaticamente o arquivo `database/criacao_usuario.sql`. O banco `juridico_db` e o login `juridico_app` precisam ser criados antes de executar a criação das tabelas.
 
-Depois que o SQL Server estiver disponível e o banco configurado em `DATABASE_NAME` existir, execute:
+### 4.1. Iniciar o SQL Server
 
-```powershell
+Suba os serviços:
+
+```bash
+docker compose up -d --build
+```
+
+Confira se o SQL Server está em execução:
+
+```bash
+docker compose ps
+docker compose logs -f sqlserver
+```
+
+Aguarde a inicialização completa do SQL Server antes de tentar conectar.
+
+### 4.2. Conectar inicialmente ao banco `master`
+
+Na primeira execução, `juridico_db` ainda não existe. Por isso, a conexão administrativa deve começar pelo banco `master`.
+
+Se tentar conectar usando `juridico_db` como banco inicial, o SSMS poderá informar que a conexão foi interrompida ou que não foi possível abrir o banco. Isso não significa necessariamente que o serviço SQL Server esteja indisponível.
+
+#### Opção A — SQL Server Management Studio (SSMS)
+
+No SSMS, conecte usando:
+
+- **Server name:** `localhost,1433` (ou o endereço/porta publicados no Docker Compose);
+- **Authentication:** SQL Server Authentication;
+- **Login:** `sa`;
+- **Password:** valor de `MSSQL_SA_PASSWORD` configurado no `.env`.
+
+Antes de conectar:
+
+1. Na janela **Connect to Server**, clique em **Options >>**.
+2. Abra **Connection Properties**.
+3. Em **Connect to database**, informe `master`.
+4. Conecte.
+
+Com a conexão aberta, abra o arquivo `database/criacao_usuario.sql`, substitua `PLACEHOLDER_PSWD` pela senha definida em `DATABASE_PASSWORD` no `.env` e execute o script.
+
+O script cria o banco `juridico_db`, o login de servidor `juridico_app`, o usuário correspondente dentro do banco e as permissões de leitura e escrita.
+
+#### Opção B — CMD, PowerShell ou Bash usando `sqlcmd` dentro do container
+
+O container utiliza o `sqlcmd` instalado em `/opt/mssql-tools18/bin/sqlcmd`. Assim, não é necessário instalar o `sqlcmd` na máquina host.
+
+Abra um terminal na pasta do projeto e execute:
+
+```bash
+docker compose exec -it sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "SENHA_DO_SA" -C -d master
+```
+
+Substitua `SENHA_DO_SA` pelo valor de `MSSQL_SA_PASSWORD` do `.env`.
+
+O parâmetro `-d master` é importante: ele define `master` como banco inicial da conexão, permitindo criar `juridico_db`.
+
+No prompt do `sqlcmd`, execute os comandos abaixo. Substitua `SENHA_DA_APP` pela mesma senha configurada em `DATABASE_PASSWORD` no `.env`:
+
+```sql
+CREATE DATABASE juridico_db;
+GO
+
+CREATE LOGIN juridico_app
+WITH PASSWORD = 'SENHA_DA_APP';
+GO
+
+USE juridico_db;
+GO
+
+CREATE USER juridico_app
+FOR LOGIN juridico_app;
+GO
+
+ALTER ROLE db_datareader ADD MEMBER juridico_app;
+ALTER ROLE db_datawriter ADD MEMBER juridico_app;
+GO
+```
+
+Para sair do `sqlcmd`:
+
+```sql
+EXIT
+```
+
+**Observações sobre o terminal:**
+
+- O comando acima pode ser executado no CMD, PowerShell ou Bash, desde que o Docker Compose esteja disponível.
+- O `GO` deve ficar sozinho em uma linha. Ele indica ao `sqlcmd` que o bloco SQL deve ser executado.
+- A opção `-P` passa a senha como argumento do comando. Evite compartilhar o comando com a senha preenchida ou salvá-lo em scripts versionados.
+- Se o caminho `/opt/mssql-tools18/bin/sqlcmd` não existir na imagem utilizada, verifique se ela possui a versão anterior em `/opt/mssql-tools/bin/sqlcmd`.
+
+### 4.3. Conferir a criação do banco e do login
+
+Ainda no `sqlcmd`, é possível conferir se o banco e o login foram criados:
+
+```sql
+SELECT name, state_desc
+FROM sys.databases
+WHERE name = 'juridico_db';
+GO
+
+SELECT name, is_disabled
+FROM sys.sql_logins
+WHERE name = 'juridico_app';
+GO
+```
+
+O banco deve aparecer como `ONLINE` e o login deve aparecer com `is_disabled = 0`.
+
+### 4.4. Criar as tabelas da aplicação
+
+Depois de criar o banco e o login, confirme que o `.env` contém os mesmos valores utilizados no script:
+
+```dotenv
+DATABASE_HOST=sqlserver
+DATABASE_PORT=1433
+DATABASE_NAME=juridico_db
+DATABASE_USER=juridico_app
+DATABASE_PASSWORD=SENHA_DA_APP
+```
+
+A criação das tabelas é uma etapa separada da criação do banco e do login. Execute:
+
+```bash
 docker compose exec app python -m app.create_tables
 ```
 
-Esse comando cria as tabelas `Autor`, `Acordo` e `Documento`, incluindo chaves primárias, restrições de unicidade, chaves estrangeiras e índices definidos nos modelos. A operação é segura para execução repetida: `create_all` cria objetos ausentes e não recria tabelas existentes.
+Esse comando utiliza os modelos SQLAlchemy para criar as tabelas no banco configurado em `DATABASE_NAME`.
 
-Como alternativa/documentação do mesmo schema, o repositório disponibiliza `database/criacao_tabelas.sql`. Esse script SQL representa manualmente a estrutura declarada nos modelos ORM, incluindo os índices dos campos de relacionamento. Para utilizá-lo, conecte-se ao banco configurado em `DATABASE_NAME` e execute o arquivo. Use **uma** das alternativas para criar as tabelas; não é necessário executar ambas.
+O usuário utilizado por `DATABASE_USER` precisa ter permissões para criar as tabelas. Se a execução retornar erro de permissão de DDL, conecte como `sa` ao banco `juridico_db` e conceda a permissão de criação necessária ao usuário da aplicação no ambiente local:
 
-> A criação do schema não é executada automaticamente pelo `docker compose up`. Execute o comando acima antes de iniciar a ingestão ou utilizar os endpoints que consultam o banco.
+```sql
+USE juridico_db;
+GO
+
+ALTER ROLE db_ddladmin ADD MEMBER juridico_app;
+GO
+```
+
+Essa permissão é voltada à inicialização local do schema. Em um ambiente de produção, prefira separar o usuário de migração/schema do usuário de execução da aplicação e conceder somente as permissões necessárias a cada um.
+
+Depois que as tabelas forem criadas, a aplicação poderá ser executada normalmente.
 
 ## 5. Executando o projeto
 
-### 5.1. Iniciar os serviços
+### 4.1. Iniciar os serviços
 
 Com o Docker em execução, suba os serviços:
 
@@ -101,7 +233,7 @@ Verifique se os containers estão em execução:
 docker compose ps
 ```
 
-### 5.2. Executar o Producer
+### 4.2. Executar o Producer
 
 O Producer é executado sob demanda. Para iniciar a ingestão:
 
@@ -111,7 +243,7 @@ docker compose run --rm producer
 
 O Producer consulta a API externa, transforma os dados e publica as mensagens na fila SQS.
 
-### 5.3. Executar o Consumer
+### 4.3. Executar o Consumer
 
 O Consumer permanece em execução contínua, aguardando mensagens na fila.
 
@@ -129,20 +261,7 @@ docker compose logs -f consumer
 
 Após a publicação das mensagens pelo Producer, o Consumer deverá recebê-las, processá-las e persistir os dados no SQL Server.
 
-### 5.4. Dead-letter queue (DLQ)
-
-O script em `scripts/` inicializa a fila principal `juridico-queue` e a fila de mensagens não processadas `juridico-dlq`. A política de redrive configura `maxReceiveCount=3`: mensagens que continuam falhando após as tentativas de entrega são encaminhadas à DLQ.
-
-Para inspecionar as filas no ambiente local, utilize o AWS CLI dentro do container LocalStack, por exemplo:
-
-```bash
-docker compose exec localstack awslocal sqs list-queues
-docker compose exec localstack awslocal sqs get-queue-attributes \
-  --queue-url http://localhost:4566/000000000000/juridico-dlq \
-  --attribute-names ApproximateNumberOfMessages
-```
-
-### 5.5. Consultar a API
+### 4.4. Consultar a API
 
 Com a API em execução, acesse a documentação interativa:
 
@@ -187,8 +306,6 @@ Os testes cobrem:
 - Rollback de transações em caso de erro.
 
 > Os testes que dependem de serviços externos ou do banco precisam do ambiente correspondente em execução.
-
-A criação do schema pode ser validada consultando as tabelas e índices no SQL Server. O arquivo `database/criacao_tabelas.sql` também serve como referência do DDL correspondente aos modelos.
 
 ## 7. Comandos úteis
 
