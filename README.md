@@ -215,9 +215,116 @@ Essa permissão é voltada à inicialização local do schema. Em um ambiente de
 
 Depois que as tabelas forem criadas, a aplicação poderá ser executada normalmente.
 
-## 5. Executando o projeto
+## 5. Consultando o SQS no LocalStack
 
-### 4.1. Iniciar os serviços
+O LocalStack disponibiliza uma simulação local do Amazon SQS. Neste projeto, as filas são criadas pelo script `scripts/init-sqs.sh`:
+
+- Fila principal: `juridico-queue`;
+- Dead Letter Queue (DLQ): `juridico-dlq`;
+- Política de redrive: após 3 recebimentos sem exclusão, a mensagem é encaminhada para a DLQ.
+
+Os comandos abaixo utilizam `awslocal`, que já está disponível dentro do container do LocalStack. Não é necessário instalar a AWS CLI na máquina host.
+
+### 5.1. Listar as filas
+
+```bash
+docker compose exec localstack awslocal sqs list-queues
+```
+
+### 5.2. Obter a URL de uma fila
+
+Fila principal:
+
+```bash
+docker compose exec localstack awslocal sqs get-queue-url --queue-name juridico-queue
+```
+
+DLQ:
+
+```bash
+docker compose exec localstack awslocal sqs get-queue-url --queue-name juridico-dlq
+```
+
+Os próximos exemplos usam a URL retornada por esse comando. Dentro do container LocalStack, ela normalmente utiliza `localhost:4566`. Copie a URL exata retornada no seu ambiente.
+
+### 5.3. Consultar a quantidade de mensagens
+
+Use `get-queue-attributes` para consultar as métricas aproximadas da fila. Substitua `<QUEUE_URL>` pela URL obtida no passo anterior.
+
+```bash
+docker compose exec localstack awslocal sqs get-queue-attributes \
+  --queue-url "<QUEUE_URL>" \
+  --attribute-names ApproximateNumberOfMessages ApproximateNumberOfMessagesNotVisible ApproximateNumberOfMessagesDelayed
+```
+
+Significado dos atributos:
+
+| Atributo | Significado |
+|---|---|
+| `ApproximateNumberOfMessages` | Mensagens disponíveis para serem recebidas |
+| `ApproximateNumberOfMessagesNotVisible` | Mensagens recebidas por algum consumidor e temporariamente invisíveis durante o Visibility Timeout |
+| `ApproximateNumberOfMessagesDelayed` | Mensagens que ainda estão aguardando o fim de um período de atraso |
+
+Essas contagens são aproximadas, não uma leitura transacional exata da fila.
+
+Para consultar a fila principal e a DLQ, repita o comando usando a URL de cada uma.
+
+### 5.4. Receber e inspecionar uma mensagem
+
+O SQS não oferece uma operação de leitura direta por `MessageId`. Para visualizar o corpo de uma mensagem, é necessário recebê-la:
+
+```bash
+docker compose exec localstack awslocal sqs receive-message \
+  --queue-url "<QUEUE_URL>" \
+  --max-number-of-messages 1 \
+  --wait-time-seconds 2 \
+  --visibility-timeout 30 \
+  --attribute-names All \
+  --message-attribute-names All
+```
+
+A resposta apresenta, entre outros campos:
+
+- `MessageId`: identificador atribuído pelo SQS;
+- `Body`: conteúdo JSON publicado pelo Producer;
+- `ReceiptHandle`: identificador temporário necessário para excluir a mensagem ou alterar sua visibilidade.
+
+**Atenção:** receber uma mensagem não a exclui, mas a torna temporariamente invisível para outros consumidores. Se ela não for excluída, voltará a ficar disponível após o Visibility Timeout configurado. Para inspecionar mensagens sem interferência, pare temporariamente o Consumer antes de executar esse comando:
+
+```bash
+docker compose stop consumer
+```
+
+Depois da inspeção, a mensagem pode voltar imediatamente à fila, usando o `ReceiptHandle` retornado:
+
+```bash
+docker compose exec localstack awslocal sqs change-message-visibility \
+  --queue-url "<QUEUE_URL>" \
+  --receipt-handle "<RECEIPT_HANDLE>" \
+  --visibility-timeout 0
+```
+
+Substitua `<RECEIPT_HANDLE>` pelo valor completo retornado em `receive-message`. Não compartilhe nem reutilize um ReceiptHandle antigo: ele é específico de uma entrega da mensagem.
+
+Ao terminar, inicie novamente o Consumer:
+
+```bash
+docker compose up -d consumer
+```
+
+### 5.5. Inspecionar mensagens encaminhadas para a DLQ
+
+Para consultar a quantidade de mensagens na DLQ, obtenha sua URL e use o comando de `get-queue-attributes` da seção 5.3.
+
+Para visualizar uma mensagem da DLQ, use o comando `receive-message` da seção 5.4, substituindo a URL pela URL de `juridico-dlq`.
+
+A DLQ permite investigar mensagens que falharam repetidamente. No ambiente deste projeto, a política de redrive encaminha a mensagem após 3 recebimentos sem exclusão bem-sucedida.
+
+> **Importante:** não use `delete-message` durante uma inspeção, a menos que queira remover definitivamente aquela mensagem da fila. O Consumer exclui mensagens após concluir com sucesso a persistência no banco.
+
+## 6. Executando o projeto
+
+### 6.1. Iniciar os serviços
 
 Com o Docker em execução, suba os serviços:
 
@@ -233,7 +340,7 @@ Verifique se os containers estão em execução:
 docker compose ps
 ```
 
-### 4.2. Executar o Producer
+### 6.2. Executar o Producer
 
 O Producer é executado sob demanda. Para iniciar a ingestão:
 
@@ -243,7 +350,7 @@ docker compose run --rm producer
 
 O Producer consulta a API externa, transforma os dados e publica as mensagens na fila SQS.
 
-### 4.3. Executar o Consumer
+### 6.3. Executar o Consumer
 
 O Consumer permanece em execução contínua, aguardando mensagens na fila.
 
@@ -261,7 +368,7 @@ docker compose logs -f consumer
 
 Após a publicação das mensagens pelo Producer, o Consumer deverá recebê-las, processá-las e persistir os dados no SQL Server.
 
-### 4.4. Consultar a API
+### 6.4. Consultar a API
 
 Com a API em execução, acesse a documentação interativa:
 
@@ -287,7 +394,7 @@ Substitua `SUA_API_KEY` pelo valor configurado no `.env`.
 
 A resposta contém os dados do autor, seus acordos e os documentos associados.
 
-## 6. Executando os testes
+## 7. Executando os testes
 
 Para executar toda a suíte de testes:
 
@@ -307,7 +414,7 @@ Os testes cobrem:
 
 > Os testes que dependem de serviços externos ou do banco precisam do ambiente correspondente em execução.
 
-## 7. Comandos úteis
+## 8. Comandos úteis
 
 ### Docker Compose
 
@@ -363,7 +470,7 @@ docker compose down -v
 > Atenção: `docker compose down -v` remove os volumes associados ao ambiente e pode apagar os dados persistidos no banco.
 
 
-## 8. Encerrando o ambiente
+## 9. Encerrando o ambiente
 
 Ao terminar a execução:
 
@@ -372,3 +479,6 @@ docker compose down
 ```
 
 Os dados persistidos em volumes Docker são mantidos, salvo se os volumes forem explicitamente removidos.
+
+## 10. Apresentação do case
+(Slides)[https://canva.link/cison59n3ua027z]
